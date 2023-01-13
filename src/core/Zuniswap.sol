@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.16;
 
-import "../lib/IERC20.sol";
 import "solmate/tokens/ERC20.sol";
+import "./ZuniswapFactory.sol";
+import "../lib/IERC20.sol";
+
+interface IZuniswap {
+    function ethToTokenSwap(uint256 _minTokens) external payable;
+    function ethToTokenTransfer(uint256 _minTokens, address _recipient) external payable;
+}
 
 contract Zuniswap is ERC20 {
     address public tokenAddress;
+    IZuniswapFactory public factory;
 
     constructor(address _token) ERC20("Zuniswap-V1", "ZUNI-V1", 18) {
         require(_token != address(0), "invalid token address");
@@ -35,11 +42,19 @@ contract Zuniswap is ERC20 {
     }
 
     function ethToTokenSwap(uint256 _minTokens) public payable {
+        ethToToken(_minTokens, msg.sender);
+    }
+
+    function ethToTokenTransfer(uint256 _minTokens, address _recipient) public payable {
+        ethToToken(_minTokens, _recipient);
+    }
+
+    function ethToToken(uint256 _minTokens, address recipient) private {
         uint256 tokenReserve = getReserve();
         uint256 tokensBought = getAmount(msg.value, address(this).balance - msg.value, tokenReserve);
         require(tokensBought >= _minTokens, "insufficient output amount");
 
-        IERC20(tokenAddress).transfer(msg.sender, tokensBought);
+        IERC20(tokenAddress).transfer(recipient, tokensBought);
     }
 
     function tokenToEthSwap(uint256 _tokensSold, uint256 _minEth) public {
@@ -103,5 +118,18 @@ contract Zuniswap is ERC20 {
         IERC20(tokenAddress).transfer(msg.sender, tokenAmount);
 
         return (ethAmount, tokenAmount);
+    }
+
+    function tokenToTokenSwap(uint256 _tokensSold, uint256 _minTokensBought, address _tokenAddress) public {
+        require(_tokenAddress != address(0), "cannot trade with 0 address");
+
+        address exchangeAddress = factory.getExchange(_tokenAddress);
+        require(exchangeAddress != address(this), "Cannot trade with oneself");
+
+        uint256 tokenReserve = getReserve();
+        uint256 ethBought = getAmount(_tokensSold, tokenReserve, address(this).balance);
+
+        IERC20(_tokenAddress).transferFrom(msg.sender, address(this), _tokensSold);
+        IZuniswap(exchangeAddress).ethToTokenSwap{value: ethBought}(_minTokensBought);
     }
 }
